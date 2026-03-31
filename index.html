@@ -13,6 +13,20 @@ body{margin:0;font-family:sans-serif;background:#ece5dd;}
   flex-direction:column;
 }
 
+/* LOGIN BUTTON */
+#loginBtn{
+  position:fixed;
+  top:10px;
+  right:10px;
+  z-index:999;
+  background:#25d366;
+  color:white;
+  border:none;
+  padding:10px 15px;
+  border-radius:8px;
+}
+
+/* USERS */
 #users{
   display:flex;
   overflow-x:auto;
@@ -66,16 +80,12 @@ body{margin:0;font-family:sans-serif;background:#ece5dd;}
   padding-bottom:22px;
   border-radius:12px;
   max-width:70%;
-  word-wrap:break-word;
 }
 
 .me .bubble{background:#25d366;color:white;}
 .other .bubble{background:white;}
 
-.text{
-  display:block;
-  padding-right:65px;
-}
+.text{padding-right:65px;}
 
 .time{
   position:absolute;
@@ -89,8 +99,6 @@ body{margin:0;font-family:sans-serif;background:#ece5dd;}
   display:flex;
   padding:8px;
   background:#eee;
-  position:sticky;
-  bottom:0;
 }
 
 textarea{
@@ -98,10 +106,9 @@ textarea{
   border:none;
   border-radius:20px;
   padding:10px;
-  font-size:16px;
 }
 
-button{
+button.send{
   background:#25d366;
   border:none;
   color:white;
@@ -113,17 +120,17 @@ button{
 
 <body>
 
+<button id="loginBtn" onclick="login()">Login</button>
+
 <div id="chat">
 
 <div id="users"></div>
-
 <div id="header">My Notes</div>
-
 <div id="messages"></div>
 
 <div id="inputArea">
   <textarea id="msg"></textarea>
-  <button onclick="send()">➤</button>
+  <button class="send" onclick="send()">➤</button>
 </div>
 
 </div>
@@ -132,7 +139,7 @@ button{
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
 import { getDatabase, ref, push, onValue, onChildAdded, set, onDisconnect } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-database.js";
-import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
+import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
 
 const app = initializeApp({
   apiKey:"AIzaSyC-951OTqzrB7kVIqUFd2LFnL3kOrFl3NU",
@@ -143,12 +150,22 @@ const app = initializeApp({
 const db=getDatabase(app);
 const auth=getAuth(app);
 
-let uid="", myPhoto="", usersData={}, selectedUser="notes";
-let unsubscribe = null;
+let uid="", myPhoto="", selectedUser="notes";
+let unsubscribe=null;
 
-/* LOGIN */
+/* LOGIN BUTTON */
+window.login = ()=>{
+  const provider = new GoogleAuthProvider();
+  signInWithPopup(auth, provider)
+    .then(()=>console.log("Logged in"))
+    .catch(err=>alert(err.message));
+};
+
+/* AUTH STATE */
 onAuthStateChanged(auth,user=>{
   if(user){
+    loginBtn.style.display="none";
+
     uid=user.uid;
     myPhoto=user.photoURL || "https://via.placeholder.com/50";
 
@@ -160,22 +177,15 @@ onAuthStateChanged(auth,user=>{
 
     onDisconnect(ref(db,"users/"+uid+"/online")).set(false);
 
-    init();
+    loadUsers();
+    loadMessages();
   }
 });
-
-/* INIT */
-function init(){
-  loadUsers();
-  loadMessages();
-  Notification.requestPermission();
-}
 
 /* USERS */
 function loadUsers(){
   onValue(ref(db,"users"),snap=>{
     users.innerHTML="";
-    usersData={};
 
     const me=document.createElement("div");
     me.className="user";
@@ -191,7 +201,6 @@ function loadUsers(){
       const u=c.val();
       const id=c.key;
 
-      usersData[id]=u;
       if(id===uid) return;
 
       const div=document.createElement("div");
@@ -224,63 +233,47 @@ window.send=()=>{
   const text=msg.value.trim();
   if(!text) return;
 
-  const now = new Date();
+  const now=new Date();
 
   push(ref(db,"chats/"+chatId(uid,selectedUser)),{
     text,
     sender:uid,
-    time: now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
-    day: now.toLocaleDateString('en-US',{weekday:'short'}),
-    date: now.toLocaleDateString('en-GB',{day:'2-digit', month:'short'})
+    time:now.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),
+    day:now.toLocaleDateString('en-US',{weekday:'short'}),
+    date:now.toLocaleDateString('en-GB',{day:'2-digit',month:'short'})
   });
 
   msg.value="";
 };
 
-/* 🔥 FINAL NO-FLICKER MESSAGE LOAD */
+/* MESSAGES (NO FLICKER) */
 function loadMessages(){
 
-  messages.innerHTML = "";
+  messages.innerHTML="";
 
-  const chatRef = ref(db,"chats/"+chatId(uid,selectedUser));
+  const chatRef=ref(db,"chats/"+chatId(uid,selectedUser));
 
   if(unsubscribe){
     unsubscribe();
-    unsubscribe = null;
+    unsubscribe=null;
   }
 
-  let firstLoad = true;
+  unsubscribe=onChildAdded(chatRef,snap=>{
+    const m=snap.val();
 
-  unsubscribe = onChildAdded(chatRef, snap=>{
-    const m = snap.val();
+    const div=document.createElement("div");
+    div.className="msg "+(m.sender===uid?"me":"other");
 
-    if(m.sender !== uid && document.hidden){
-      new Notification("New Message", { body: m.text });
-    }
-
-    const div = document.createElement("div");
-    div.className = "msg " + (m.sender===uid ? "me":"other");
-
-    div.innerHTML = `
+    div.innerHTML=`
       <div class="bubble">
         <div class="text">${m.text}</div>
-        <div class="time">
-          ${m.date || ""}, ${m.day || ""} ${m.time || ""}
-        </div>
+        <div class="time">${m.date}, ${m.day} ${m.time}</div>
       </div>
     `;
 
     messages.appendChild(div);
-
-    if(!firstLoad){
-      messages.scrollTop = messages.scrollHeight;
-    }
+    messages.scrollTop=messages.scrollHeight;
   });
-
-  setTimeout(()=>{
-    firstLoad = false;
-    messages.scrollTop = messages.scrollHeight;
-  },300);
 }
 
 </script>
